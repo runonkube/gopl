@@ -1,24 +1,41 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"crypto/sha512"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 )
 
 func main() {
-	scanner := bufio.NewScanner(os.Stdin)
 
-	for {
-		fmt.Print("Enter a value and one of SHA256 (which is the default), SHA384 or SHA512 to see the hash of the value or ctrl+c to exit. E.g. foobar SHA512:")
-		scanner.Scan()
-		line := scanner.Text()
+	hashType := flag.String("h", "sha256", "hash type: sha256, sha384 sha512")
+	flag.Parse()
 
-		parts := strings.Split(line, " ")
+	if flag.NArg() > 0 {
+		fmt.Fprintln(os.Stderr, "Unrecognised positional args.", flag.Args())
+		os.Exit(1)
+	}
 
-		if len(parts) == 1 {
-			fmt.Println(parts)
-		}
+	fmt.Print("Enter input, press ctrl+d when done:")
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Println("Cannot read data from std in")
+		return
+	}
+	trimmedBytes := bytes.TrimRight(data, "\n")
+	fmt.Println()
+
+	switch strings.ToLower(*hashType) {
+	case "sha512":
+		fmt.Printf("sha512 of '%s' is %x\n", trimmedBytes, sha512.Sum512(trimmedBytes))
+	case "sha384":
+		fmt.Printf("sha384 of '%s' is %x\n", trimmedBytes, sha512.Sum384(trimmedBytes))
+	default:
+		fmt.Printf("sha256 of '%s' is %x\n", trimmedBytes, sha256.Sum256(trimmedBytes))
 	}
 }
