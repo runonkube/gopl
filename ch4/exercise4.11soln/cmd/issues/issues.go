@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -15,7 +16,7 @@ func main() {
 	args := os.Args
 
 	if len(args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: issues [subcommand] [options]")
+		fmt.Fprintf(os.Stderr, "Usage: issues [subcommand] [options]\n")
 		os.Exit(1)
 	}
 
@@ -23,48 +24,138 @@ func main() {
 	case "create":
 		if issue, err := createIssue(args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating issue: %s", err)
+			os.Exit(1)
 		} else {
-			fmt.Printf("Issue created: %v", *issue)
+			fmt.Printf("Issue created.\nNumber: %d\nState: %s\nTitle: %s\n", issue.Number, issue.State, issue.Title)
+		}
+	case "update":
+		if issue, err := updateIssue(args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error updating issue: %s", err)
+			os.Exit(1)
+		} else {
+			fmt.Printf("Issue updated.\nNumber: %d\nState: %s\nTitle: %s\n", issue.Number, issue.State, issue.Title)
+		}
+	case "list":
+		if issues, err := listIssues(args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "%v", err)
+			os.Exit(1)
+		} else {
+			fmt.Println("Issue Number\tState\tTitle")
+			for _, issue := range issues {
+				fmt.Printf("%-12d\t%-5s\t%s\n", issue.Number, issue.State, issue.Title)
+			}
+		}
+	case "show":
+		if issue, err := showIssue(args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "%v", err)
+			os.Exit(1)
+		} else {
+			fmt.Printf("Title: %s\nState: %v\n%s\n\n", issue.Title, issue.State, issue.Body)
 		}
 	case "close":
-	case "list":
-		if err := listIssues(args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "")
+		if issue, err := closeIssue(args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "%v", err)
+			os.Exit(1)
+		} else {
+			if strings.ToLower(issue.State) == "closed" {
+				fmt.Println("Issue closed")
+			} else {
+				fmt.Println("Issue not closed")
+			}
 		}
-	case "get":
-	case "update":
 	}
 
 }
 
-func listIssues(args []string) error {
+func closeIssue(args []string) (*github.Issue, error) {
+	usage := errors.New("Usage: issues close [options] <owner>/<repo>")
 	if len(args) < 1 {
-		return fmt.Errorf("Usage: issues list [options] <owner>/<repo>")
+		return nil, usage
 	}
 
+	closeFlagSet := flag.NewFlagSet("close", flag.ExitOnError)
+	issueNumber := closeFlagSet.Int("number", 0, "The issue number")
+
+	if err := closeFlagSet.Parse(args); err != nil {
+		return nil, err
+	}
+
+	remainingArgs := closeFlagSet.Args()
+	if len(remainingArgs) == 0 {
+		return nil, usage
+	}
+
+	ownerRepo := remainingArgs[0]
+
+	return github.GetIssueClient().CloseIssue(ownerRepo, *issueNumber)
+}
+
+func showIssue(args []string) (*github.Issue, error) {
+	usage := errors.New("Usage: issues show [options] <owner>/<repo>")
+	if len(args) < 1 {
+		return nil, usage
+	}
+
+	showFlagSet := flag.NewFlagSet("show", flag.ExitOnError)
+	issueNumber := showFlagSet.Int("number", 0, "The issue number")
+
+	if err := showFlagSet.Parse(args); err != nil {
+		return nil, err
+	}
+
+	remainingArgs := showFlagSet.Args()
+	if len(remainingArgs) == 0 {
+		return nil, usage
+	}
+
+	ownerRepo := remainingArgs[0]
+
+	return github.GetIssueClient().ShowIssue(ownerRepo, *issueNumber)
+}
+
+func listIssues(args []string) ([]github.Issue, error) {
+	usage := errors.New("Usage: issues list [options] <owner>/<repo>")
+	if len(args) < 1 {
+		return nil, usage
+	}
+
+	listFlagSet := flag.NewFlagSet("list", flag.ExitOnError)
+	state := listFlagSet.String("state", "", "The state of the issues to list i.e., open|closed|all")
+
+	if err := listFlagSet.Parse(args); err != nil {
+		return nil, err
+	}
+
+	remainingArgs := listFlagSet.Args()
+	if len(remainingArgs) == 0 {
+		return nil, usage
+	}
+
+	ownerRepo := remainingArgs[0]
+
+	return github.GetIssueClient().ListIssues(ownerRepo, *state)
 }
 
 func createIssue(args []string) (*github.Issue, error) {
+	usage := errors.New("Usage: issues create [options] <owner>/<repo>")
 
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: issues create [options] <owner>/<repo>")
-		os.Exit(1)
+		return nil, usage
 	}
 
-	createFlags := flag.NewFlagSet("create", flag.ExitOnError)
-	title := createFlags.String("title", "", "Name of github issue")
-	body := createFlags.String("body", "", "Body of github issue. Note: #lines starting with # will be ignored.")
+	createFlagSet := flag.NewFlagSet("create", flag.ExitOnError)
+	title := createFlagSet.String("title", "", "Name of github issue")
+	body := createFlagSet.String("body", "", "Body of github issue. Note: #lines starting with # will be ignored.")
 
 	// 1. Parse flags first!
-	if err := createFlags.Parse(args); err != nil {
+	if err := createFlagSet.Parse(args); err != nil {
 		return nil, err
 	}
 
 	// 2. Grab the remaining non-flag arguments left over
-	remainingArgs := createFlags.Args()
+	remainingArgs := createFlagSet.Args()
 	if len(remainingArgs) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: issues create [options] <owner>/<repo>")
-		os.Exit(1)
+		return nil, usage
 	}
 
 	repoTarget := remainingArgs[0] // This will be "owner/repo"
@@ -83,15 +174,66 @@ func createIssue(args []string) (*github.Issue, error) {
 	}
 
 	if strings.TrimSpace(bodyToUse) == "" || strings.TrimSpace(titleToUse) == "" {
-		return nil, fmt.Errorf("Title and Body cannot be empty")
+		return nil, errors.New("Title and Body cannot be empty")
 	}
 
-	payload := github.IssueCreateRequest{
+	payload := github.IssueRequest{
 		Title: titleToUse,
 		Body:  bodyToUse,
 	}
 
 	return github.GetIssueClient().Create(repoTarget, &payload)
+}
+
+func updateIssue(args []string) (*github.Issue, error) {
+	usage := errors.New("Usage: issues update [options] <owner>/<repo>")
+
+	if len(args) < 1 {
+		return nil, usage
+	}
+
+	updateFlagSet := flag.NewFlagSet("update", flag.ExitOnError)
+	issueNumber := updateFlagSet.Int("number", 0, "The issue number")
+	title := updateFlagSet.String("title", "", "Name of github issue")
+	body := updateFlagSet.String("body", "", "Body of github issue. Note: #lines starting with # will be ignored.")
+
+	// 1. Parse flags first!
+	if err := updateFlagSet.Parse(args); err != nil {
+		return nil, err
+	}
+
+	// 2. Grab the remaining non-flag arguments left over
+	remainingArgs := updateFlagSet.Args()
+	if len(remainingArgs) < 1 {
+		return nil, usage
+	}
+
+	repoTarget := remainingArgs[0] // This will be "owner/repo"
+	bodyToUse := *body
+	titleToUse := *title
+
+	if strings.TrimSpace(bodyToUse) == "" {
+		template := getTemplate(*title)
+		titleFromEditor, bodyFromEditor, err := captureFromEditor(template)
+
+		if err != nil {
+			return nil, err
+		}
+		bodyToUse = bodyFromEditor
+		titleToUse = titleFromEditor
+	}
+
+	if strings.TrimSpace(bodyToUse) == "" || strings.TrimSpace(titleToUse) == "" {
+		return nil, errors.New("Title and Body cannot be empty")
+	}
+
+	payload := github.IssueRequest{
+		IssueId: *issueNumber,
+		Title:   titleToUse,
+		Body:    bodyToUse,
+	}
+
+	return github.GetIssueClient().Update(repoTarget, &payload)
 }
 
 func getTemplate(title string) string {
